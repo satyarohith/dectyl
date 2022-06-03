@@ -2,7 +2,7 @@
 
 /// <reference lib="deno.unstable" />
 
-import { toFileUrl } from "../deps.ts";
+import { bundle, emit, toFileUrl } from "../deps.ts";
 import * as logger from "./logger.ts";
 import type {
   DectylMessage,
@@ -15,7 +15,6 @@ import type {
 import {
   assert,
   checkPermissions,
-  checkUnstable,
   createBlobUrl,
   Deferred,
   parseBodyInit,
@@ -414,19 +413,15 @@ export class DeployWorker {
         ? new URL(this.#specifier, toFileUrl(`${Deno.cwd()}/`))
         : this.#specifier).toString();
     if (this.#bundle) {
-      const { diagnostics, files } = await Deno.emit(this.#specifier, {
-        bundle: "module",
-        check: false,
+      const { code } = await bundle(this.#specifier, {
+        type: "module",
         compilerOptions: {
-          jsx: "react",
           jsxFactory: "h",
           jsxFragmentFactory: "Fragment",
           sourceMap: false,
         },
       });
-      assert(diagnostics.length === 0);
-      assert(files[BUNDLE_SPECIFIER]);
-      specifier = createBlobUrl(files[BUNDLE_SPECIFIER]);
+      specifier = createBlobUrl(code);
     }
     const importMessage: ImportMessage = {
       type: "import",
@@ -555,13 +550,6 @@ export class DeployWorker {
   /** The current state of the worker. */
   get state(): DeployWorkerState {
     return this.#state;
-  }
-
-  /** Type check the program as if it were a Deploy script, resolving with an
-   * array of diagnostic information.  If the array is empty, there were no
-   * issues with type checking. */
-  check(options: CheckOptions = {}): Promise<Deno.Diagnostic[]> {
-    return check(this.#specifier, options);
   }
 
   /** Close and terminate the worker. The worker will resolve when any pending
@@ -824,110 +812,10 @@ export async function createWorker(
   specifier: string | URL,
   options: DeployOptions = {},
 ): Promise<DeployWorker> {
-  checkUnstable();
   await checkPermissions(specifier);
   const worker = new DeployWorker(specifier, options);
   await worker.ready;
   return worker;
-}
-
-/** Type check a script as if it were a Deploy script, resolving with an array
- * of diagnostic information.  If the array is empty, there were no issues with
- * type checking.
- *
- * ```ts
- * const diagnostics = await check("./my_deploy_script.ts");
- * if (diagnostics.length) {
- *   console.log("there were errors");
- * }
- * ```
- *
- * `Deno.formatDiagnostics()` can be used to format any diagnostics returned
- * which provides a more human readable version:
- *
- * ```ts
- * const diagnostics = await check("./my_deploy_script.ts");
- * if (diagnostics.length) {
- *   console.log(Deno.formatDiagnostics(diagnostics));
- * }
- * ```
- *
- * By default, the type checking will type check the script as both a Deno
- * Deploy and Deno CLI script. This means code written for Deno CLI and Deploy
- * should type check ok, but may lead to runtime errors if the code using the
- * CLI only APIs does not properly detect the environment it is running it.
- * The options argument can be used to modify this behavior.
- */
-export async function check(
-  specifier: string | URL,
-  options: CheckOptions = {},
-): Promise<Deno.Diagnostic[]> {
-  checkUnstable();
-  await checkPermissions(specifier);
-  const {
-    includeCli = true,
-    includeDom = false,
-    includeLib = false,
-    includeFetchEvent = true,
-    includeUnstableCli = false,
-    filter = true,
-  } = options;
-  if (includeLib && includeDom) {
-    throw new TypeError(
-      "The option includeLib and includeDom cannot both be true.",
-    );
-  }
-  if (includeLib && includeCli) {
-    throw new TypeError(
-      "The option includeLib and includeCli cannot both be true.",
-    );
-  }
-  const types: string[] = [];
-  const lib: string[] = ["esnext"];
-  if (includeDom) {
-    lib.push("dom", "dom.iterable", "dom.asynciterable");
-  }
-  if (includeCli) {
-    if (!includeDom) {
-      lib.push("deno.window");
-    }
-    lib.push("deno.ns");
-  } else if (includeLib) {
-    types.push(TYPES_DEPLOY_NS, TYPES_SHAREDGLOBALS);
-  }
-  if (includeFetchEvent) {
-    types.push(TYPES_FETCHEVENT);
-  }
-  if (includeUnstableCli) {
-    lib.push("deno.unstable");
-  }
-  const { diagnostics } = await Deno.emit(specifier, {
-    compilerOptions: {
-      jsx: "react",
-      jsxFactory: "h",
-      jsxFragmentFactory: "Fragment",
-      lib,
-      sourceMap: false,
-      types,
-    },
-  });
-  if (filter) {
-    return diagnostics.filter((diagnostic) => {
-      // TS2300 [ERROR]: Duplicate identifier 'FetchEvent'.
-      if (
-        diagnostic.code === 2300 &&
-        (diagnostic.fileName?.includes("types/deploy") ||
-          diagnostic.relatedInformation?.some((ri) =>
-            ri.fileName?.includes("types/deploy")
-          ))
-      ) {
-        return false;
-      }
-      return true;
-    });
-  } else {
-    return diagnostics;
-  }
 }
 
 let uid = 0;

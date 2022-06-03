@@ -1,6 +1,6 @@
 // Copyright 2021 Deno Land Inc. All rights reserved. MIT license.
 
-import { check, createWorker, testing } from "../mod.ts";
+import { createWorker, testing } from "../mod.ts";
 import { assertEquals } from "https://deno.land/std@0.100.0/testing/asserts.ts";
 
 Deno.test({
@@ -58,14 +58,5 @@ Deno.test({
       assertEquals(await response.text(), "Hello World!");
       assertEquals([...response.headers], [["content-type", "text/plain"]]);
     });
-  },
-});
-
-Deno.test({
-  name: "hello-world type checking",
-  async fn() {
-    testing.assertDiagnostics(
-      await check("./examples/deploy_scripts/hello_world.ts"),
-    );
   },
 });

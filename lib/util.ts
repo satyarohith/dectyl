@@ -94,14 +94,6 @@ export async function checkPermissions(specifier: string | URL) {
   }
 }
 
-export function checkUnstable() {
-  if (!(Deno && "emit" in Deno)) {
-    throw new Error(
-      "The `Deno.emit` API is not present but required. Please run this again with the `--unstable` flag.",
-    );
-  }
-}
-
 export function parseBodyInit(
   input: string | Request,
   requestInit: RequestInit,
